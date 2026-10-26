@@ -19,10 +19,8 @@ import {
   LayoutGrid,
   List,
   LogOut,
-  Moon,
   Plus,
   Search,
-  Sun,
   Trash2,
   UserCheck,
 } from 'lucide-react';
