@@ -2,8 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import { collection, addDoc } from 'firebase/firestore';
-import { db } from './services/firebase';
+import { collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { db, auth } from './services/firebase';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
@@ -19,11 +20,9 @@ import {
   List,
   LogOut,
   Plus,
-  RotateCcw,
   Search,
   Trash2,
   UserCheck,
-  X,
 } from 'lucide-react';
 
 import { PlanilhaImporter } from './components/PlanilhaImporter';
@@ -44,15 +43,6 @@ import {
   getRelativeDateString,
   isUrgentPendingPost,
 } from './utils/editorialLogic';
-import {
-  createEditorialPost,
-  deleteEditorialPost,
-  logoutUser,
-  resetSimulatedDemoData,
-  subscribeToAuthChanges,
-  subscribeToEditorialPosts,
-  updateEditorialPost,
-} from './services/firebase';
 import { LoginView } from './components/LoginView';
 import { PostFormModal } from './components/PostFormModal';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
@@ -63,7 +53,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [posts, setPosts] = useState<EditorialPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
-  const [syncMode, setSyncMode] = useState<'firebase' | 'simulated'>('simulated');
+  const [syncMode, setSyncMode] = useState<'firebase' | 'simulated'>('firebase');
   const [bannerNotice, setBannerNotice] = useState<string | null>(null);
 
   // Filters & View State
@@ -81,16 +71,25 @@ export default function App() {
   const [postToDelete, setPostToDelete] = useState<EditorialPost | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  // Subscribe to Auth state
+  // Subscribe to Auth state real
   useEffect(() => {
-    const unsubscribe = subscribeToAuthChanges((user) => {
-      setCurrentUser(user);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setCurrentUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Usuário',
+          role: 'Admin',
+        });
+      } else {
+        setCurrentUser(null);
+      }
       setAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
 
-  // Subscribe to Posts when authenticated
+  // Subscribe to Posts real-time
   useEffect(() => {
     if (!currentUser) {
       setPosts([]);
@@ -99,18 +98,18 @@ export default function App() {
     }
 
     setPostsLoading(true);
-    const unsubscribe = subscribeToEditorialPosts(
-      currentUser,
-      (updatedPosts, mode) => {
-        setPosts(updatedPosts);
-        setSyncMode(mode);
-        setPostsLoading(false);
-      },
-      (errMessage) => {
-        console.warn('Firestore listener error:', errMessage);
-        setPostsLoading(false);
-      }
-    );
+    const unsubscribe = onSnapshot(collection(db, 'posts'), (snapshot) => {
+      const fetchedPosts = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as EditorialPost[];
+      
+      setPosts(fetchedPosts);
+      setPostsLoading(false);
+    }, (error) => {
+      console.error('Erro ao ler posts:', error);
+      setPostsLoading(false);
+    });
 
     return () => unsubscribe();
   }, [currentUser]);
@@ -138,19 +137,29 @@ export default function App() {
     setIsPostModalOpen(true);
   };
 
-const handleSavePost = async (input: PostFormInput) => {
-  try {
-    const docRef = await addDoc(collection(db, "posts"), input);
-    setPosts(prev => [...prev, { ...input, id: docRef.id } as EditorialPost]);
-  } catch (error) {
-    console.error("Erro ao salvar no Firebase:", error);
-    alert("Erro ao gravar os dados. Verifique as regras do Firestore.");
-  }
-};
+  const handleSavePost = async (input: PostFormInput) => {
+    try {
+      if (editingPost) {
+        // Atualiza post existente
+        await updateDoc(doc(db, "posts", editingPost.id), input as any);
+      } else {
+        // Cria novo post
+        await addDoc(collection(db, "posts"), input);
+      }
+      // O onSnapshot acima atualiza a tela automaticamente!
+    } catch (error) {
+      console.error("Erro ao salvar no Firebase:", error);
+      alert("Erro ao gravar os dados. Verifique as regras do Firestore.");
+    }
+  };
 
   const handleConfirmDelete = async (postId: string) => {
-    if (!currentUser) return;
-    await deleteEditorialPost(currentUser, postId);
+    try {
+      await deleteDoc(doc(db, "posts", postId));
+      setPostToDelete(null);
+    } catch (error) {
+      console.error("Erro ao excluir:", error);
+    }
   };
 
   const handleClearFilters = () => {
@@ -163,7 +172,7 @@ const handleSavePost = async (input: PostFormInput) => {
   };
 
   const handleLogout = async () => {
-    await logoutUser();
+    await signOut(auth);
     setCurrentUser(null);
     setBannerNotice(null);
   };
@@ -173,7 +182,6 @@ const handleSavePost = async (input: PostFormInput) => {
     filters.status !== 'TODOS' ||
     filters.search.trim() !== '' ||
     filters.onlyUrgentAlerts;
-
 
   if (!authReady) {
     return (
@@ -207,7 +215,6 @@ const handleSavePost = async (input: PostFormInput) => {
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       {/* Top Bar Contract: 3 Zones separated by gap-8 */}
       <header className="flex items-center justify-between gap-8 px-6 lg:px-10 py-3.5 bg-white border-b border-slate-200 sticky top-0 z-30">
-        {/* Zone 1: Single text element wordmark */}
         <a
           href="#top"
           onClick={(e) => {
@@ -219,7 +226,6 @@ const handleSavePost = async (input: PostFormInput) => {
           Editorial Studio
         </a>
 
-        {/* Zone 2: 4 concise single-line navigation links */}
         <nav
           aria-label="Navegação de Visualização"
           className="hidden md:flex items-center gap-6 text-xs font-medium text-slate-600"
@@ -275,7 +281,6 @@ const handleSavePost = async (input: PostFormInput) => {
           </button>
         </nav>
 
-        {/* Zone 3: 1 primary action */}
         <div className="flex items-center gap-3 shrink-0">
           <button
             type="button"
@@ -311,17 +316,6 @@ const handleSavePost = async (input: PostFormInput) => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {syncMode === 'simulated' && (
-              <button
-                type="button"
-                onClick={resetSimulatedDemoData}
-                title="Restaurar postagens padrão"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Restaurar Padrão</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setIsGuideOpen(true)}
@@ -342,7 +336,6 @@ const handleSavePost = async (input: PostFormInput) => {
           </div>
         </div>
 
-        {/* Critical D+1 Alert Banner when urgent pending posts exist */}
         {metrics.urgentAlertsCount > 0 && (
           <div
             role="region"
@@ -392,7 +385,6 @@ const handleSavePost = async (input: PostFormInput) => {
           </div>
         )}
 
-        {/* 4-Column KPI Summary Strip */}
         <section
           aria-label="Métricas do Calendário"
           className="grid grid-cols-2 lg:grid-cols-4 bg-white border border-slate-200 rounded-xl divide-y sm:divide-y-0 sm:divide-x divide-slate-200 overflow-hidden"
@@ -459,13 +451,11 @@ const handleSavePost = async (input: PostFormInput) => {
           </div>
         </section>
 
-        {/* Top Quick Filters Bar (Empresa, Status, Search, View Toggle) */}
         <section
           aria-label="Filtros Rápidos"
           className="bg-white border border-slate-200 rounded-xl p-4 space-y-3.5"
         >
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            {/* Search Input + Company Filter Select */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
               <div className="relative flex-1 max-w-md">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -481,7 +471,6 @@ const handleSavePost = async (input: PostFormInput) => {
                 />
               </div>
 
-              {/* Filter by Empresa (Select Dropdown) */}
               <div className="flex items-center gap-2">
                 <label
                   htmlFor="filter-empresa-select"
@@ -507,7 +496,6 @@ const handleSavePost = async (input: PostFormInput) => {
                 </select>
               </div>
 
-              {/* Filter by Status (Select Dropdown for mobile/quick access) */}
               <div className="flex items-center gap-2 lg:hidden">
                 <label
                   htmlFor="filter-status-select"
@@ -534,7 +522,6 @@ const handleSavePost = async (input: PostFormInput) => {
               </div>
             </div>
 
-            {/* Right Controls: Urgent Toggle + View Mode Switcher */}
             <div className="flex items-center justify-between sm:justify-end gap-2">
               <button
                 type="button"
@@ -599,9 +586,7 @@ const handleSavePost = async (input: PostFormInput) => {
             </div>
           </div>
 
-          {/* Interactive Segmented Filter Tabs for Status & Quick Company Buttons */}
           <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-            {/* Status Segmented Control */}
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs font-semibold text-slate-500 mr-1 whitespace-nowrap">
                 Por Status:
@@ -642,7 +627,6 @@ const handleSavePost = async (input: PostFormInput) => {
               </div>
             </div>
 
-            {/* Quick Company Filter Buttons */}
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs font-semibold text-slate-500 mr-1 whitespace-nowrap">
                 Por Empresa:
@@ -682,7 +666,6 @@ const handleSavePost = async (input: PostFormInput) => {
           </div>
         </section>
 
-        {/* Main Posts View (Table or Grid) */}
         {postsLoading ? (
           <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-3">
             {[1, 2, 3, 4].map((skeleton) => (
@@ -755,7 +738,6 @@ const handleSavePost = async (input: PostFormInput) => {
                             : 'hover:bg-slate-50/80 text-slate-800'
                         }`}
                       >
-                        {/* Empresa & Formato */}
                         <td className="py-3.5 px-4 align-top">
                           <div className="font-bold text-slate-900">
                             {post.empresa}
@@ -765,7 +747,6 @@ const handleSavePost = async (input: PostFormInput) => {
                           </div>
                         </td>
 
-                        {/* Data (YYYY-MM-DD) + Visual Alert */}
                         <td className="py-3.5 px-4 align-top whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             {isUrgent && (
@@ -793,7 +774,6 @@ const handleSavePost = async (input: PostFormInput) => {
                           </div>
                         </td>
 
-                        {/* Objetivo & Conteúdo */}
                         <td className="py-3.5 px-4 align-top max-w-md">
                           <div className="font-semibold text-slate-900">
                             {post.objetivo}
@@ -803,7 +783,6 @@ const handleSavePost = async (input: PostFormInput) => {
                           </p>
                         </td>
 
-                        {/* Status Editorial */}
                         <td className="py-3.5 px-4 align-top whitespace-nowrap">
                           {isUrgent ? (
                             <div className="space-y-0.5">
@@ -839,7 +818,6 @@ const handleSavePost = async (input: PostFormInput) => {
                           )}
                         </td>
 
-                        {/* Responsável */}
                         <td className="py-3.5 px-4 align-top whitespace-nowrap">
                           <div className="inline-flex items-center gap-1.5 text-slate-700 font-medium">
                             <UserCheck className="w-3.5 h-3.5 text-slate-400" />
@@ -847,7 +825,6 @@ const handleSavePost = async (input: PostFormInput) => {
                           </div>
                         </td>
 
-                        {/* Briefing URL */}
                         <td className="py-3.5 px-4 align-top whitespace-nowrap">
                           {post.briefing_url ? (
                             <a
@@ -864,7 +841,6 @@ const handleSavePost = async (input: PostFormInput) => {
                           )}
                         </td>
 
-                        {/* Ações */}
                         <td className="py-3.5 px-4 align-top text-right whitespace-nowrap">
                           <div className="inline-flex items-center justify-end gap-1.5">
                             <button
@@ -895,7 +871,6 @@ const handleSavePost = async (input: PostFormInput) => {
             </div>
           </div>
         ) : (
-          /* Grid View */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredPosts.map((post) => {
               const isUrgent = isUrgentPendingPost(post, todayStr);
@@ -912,7 +887,6 @@ const handleSavePost = async (input: PostFormInput) => {
                   }`}
                 >
                   <div className="space-y-3">
-                    {/* Top Unboxed Metadata Kicker */}
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <div className="flex items-center gap-1.5 font-semibold text-slate-900">
                         <span>{post.empresa}</span>
