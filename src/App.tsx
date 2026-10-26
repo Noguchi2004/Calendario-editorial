@@ -228,7 +228,7 @@ export default function App() {
           }}
           className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0"
         >
-          Editorial Studio
+          Calendário Editorial
         </a>
 
         <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-slate-600">
@@ -255,7 +255,7 @@ export default function App() {
                 : ''
             }`}
           >
-            Alertas D+1 ({metrics.urgentAlertsCount})
+            Alertas ({metrics.urgentAlertsCount})
           </button>
           <button
             type="button"
