@@ -1,0 +1,129 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.firebase.sign_in_provider == 'password'
+      );
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'pedrohcnoguti@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    // 3. Entity Validation Blueprint: Post
+    function isValidPost(data) {
+      return data.keys().hasAll([
+        'empresa',
+        'data',
+        'formato',
+        'objetivo',
+        'conteudo',
+        'status',
+        'responsavel',
+        'briefing_url',
+        'workspace',
+        'createdBy',
+        'updatedBy',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'empresa',
+        'data',
+        'formato',
+        'objetivo',
+        'conteudo',
+        'status',
+        'responsavel',
+        'briefing_url',
+        'workspace',
+        'createdBy',
+        'updatedBy',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.empresa is string && data.empresa.size() >= 1 && data.empresa.size() <= 120 &&
+      data.data is string && data.data.size() == 10 && data.data.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+      data.formato is string && data.formato.size() >= 1 && data.formato.size() <= 60 &&
+      data.formato in ['Reels', 'Carrossel', 'Post Estático', 'Stories', 'Vídeo Longo', 'Artigo / Blog', 'Newsletter'] &&
+      data.objetivo is string && data.objetivo.size() >= 1 && data.objetivo.size() <= 200 &&
+      data.conteudo is string && data.conteudo.size() >= 1 && data.conteudo.size() <= 2000 &&
+      data.status is string && data.status.size() >= 1 && data.status.size() <= 40 &&
+      data.status in ['Pendente', 'Em Produção', 'Em Aprovação', 'Aprovado', 'Publicado'] &&
+      data.responsavel is string && data.responsavel.size() >= 1 && data.responsavel.size() <= 120 &&
+      data.briefing_url is string && data.briefing_url.size() <= 500 &&
+      data.workspace is string && data.workspace.size() == 15 && data.workspace == 'editorial_admin' &&
+      data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+      data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Rules: /posts/{postId}
+    match /posts/{postId} {
+      allow get: if isVerifiedUser() && isValidId(postId) && existing().workspace == 'editorial_admin';
+      allow list: if isVerifiedUser() && existing().workspace == 'editorial_admin';
+
+      allow create: if isVerifiedUser() &&
+        isValidId(postId) &&
+        isValidPost(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().updatedBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(postId) &&
+        isValidPost(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().workspace == existing().workspace &&
+        incoming().updatedBy == request.auth.uid &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'empresa',
+            'data',
+            'formato',
+            'objetivo',
+            'conteudo',
+            'status',
+            'responsavel',
+            'briefing_url',
+            'updatedBy',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(postId) && existing().workspace == 'editorial_admin';
+    }
+  }
+}
