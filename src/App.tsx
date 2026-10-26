@@ -19,15 +19,6 @@ import {
   LayoutGrid,
   List,
   LogOut,
-  Plus,
-  Search,
-  Trash2,
-  UserCheck,
-} from 'lucide-react';
-
-import {
-  // ... outros ícones ...
-  LogOut,
   Moon,
   Plus,
   Search,
@@ -35,6 +26,7 @@ import {
   Trash2,
   UserCheck,
 } from 'lucide-react';
+
 
 import { PlanilhaImporter } from './components/PlanilhaImporter';
 
