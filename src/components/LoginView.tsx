@@ -4,16 +4,13 @@ import {
   ArrowRight,
   Calendar,
   HelpCircle,
-  KeyRound,
   Lock,
   Mail,
   ShieldCheck,
 } from 'lucide-react';
 import { AuthUser } from '../types/editorial';
-import {
-  loginWithEmailPassword,
-  loginWithGoogleAdmin,
-} from '../services/firebase';
+import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { auth } from '../services/firebase';
 
 interface LoginViewProps {
   onLoginSuccess: (user: AuthUser, notice?: string) => void;
@@ -29,6 +26,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const formatUser = (firebaseUser: any): AuthUser => ({
+    id: firebaseUser.uid,
+    email: firebaseUser.email || '',
+    name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Usuário',
+    role: 'Admin', // Nível de acesso padrão para a equipa
+    avatar: firebaseUser.photoURL || undefined
+  });
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -38,21 +43,17 @@ export const LoginView: React.FC<LoginViewProps> = ({
       return;
     }
 
-    if (password.trim().length < 6) {
-      setError('A senha deve possuir pelo menos 6 caracteres.');
-      return;
-    }
-
     setLoading(true);
     try {
-      const result = await loginWithEmailPassword(email, password);
-      onLoginSuccess(result.user, result.notice);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível autenticar. Verifique suas credenciais.'
-      );
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      onLoginSuccess(formatUser(userCredential.user));
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setError('E-mail ou senha incorretos.');
+      } else {
+        setError('Não foi possível autenticar. Verifique suas credenciais.');
+      }
     } finally {
       setLoading(false);
     }
@@ -62,24 +63,17 @@ export const LoginView: React.FC<LoginViewProps> = ({
     setError(null);
     setLoading(true);
     try {
-      const result = await loginWithGoogleAdmin();
-      onLoginSuccess(result.user);
-    } catch {
-      // Fallback if popup is blocked in automated headless browser or iframe
-      const fallback = await loginWithEmailPassword(
-        'admin@editorial.com.br',
-        'admin123'
-      );
-      onLoginSuccess(fallback.user, fallback.notice);
+      const provider = new GoogleAuthProvider();
+      const userCredential = await signInWithPopup(auth, provider);
+      onLoginSuccess(formatUser(userCredential.user));
+    } catch (err: any) {
+      console.error(err);
+      if (err.code !== 'auth/popup-closed-by-user') {
+        setError('Erro ao autenticar com o Google.');
+      }
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillAdminDemoCredentials = () => {
-    setEmail('admin@editorial.com.br');
-    setPassword('admin123');
-    setError(null);
   };
 
   return (
@@ -243,25 +237,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <div className="h-px flex-1 bg-slate-200" />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={fillAdminDemoCredentials}
-                className="py-2 px-3 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-slate-600" />
-                Preencher Conta Admin
-              </button>
-
-              <button
-                type="button"
-                onClick={handleGoogleLogin}
-                disabled={loading}
-                className="py-2 px-3 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-              >
-                <span>Autenticar com Google</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading}
+              className="w-full py-2 px-3 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <span>Autenticar com Google</span>
+            </button>
           </div>
         </div>
       </main>

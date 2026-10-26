@@ -2,7 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-
+import { collection, addDoc } from 'firebase/firestore';
+import { db } from './services/firebase';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
@@ -137,14 +138,15 @@ export default function App() {
     setIsPostModalOpen(true);
   };
 
-  const handleSavePost = async (input: PostFormInput) => {
-    if (!currentUser) return;
-    if (editingPost) {
-      await updateEditorialPost(currentUser, editingPost.id, input);
-    } else {
-      await createEditorialPost(currentUser, input);
-    }
-  };
+const handleSavePost = async (input: PostFormInput) => {
+  try {
+    const docRef = await addDoc(collection(db, "posts"), input);
+    setPosts(prev => [...prev, { ...input, id: docRef.id } as EditorialPost]);
+  } catch (error) {
+    console.error("Erro ao salvar no Firebase:", error);
+    alert("Erro ao gravar os dados. Verifique as regras do Firestore.");
+  }
+};
 
   const handleConfirmDelete = async (postId: string) => {
     if (!currentUser) return;
