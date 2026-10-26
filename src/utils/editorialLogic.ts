@@ -98,51 +98,68 @@ export function getRelativeDateLabel(
  * Filters and sorts posts according to active company, status, search query, and urgent alert flag.
  * Urgent pending posts (tomorrow + Pendente) are prioritized or highlighted clearly, sorted by date ascending.
  */
-export function filterPosts(
+export const filterPosts = (
   posts: EditorialPost[],
-  filters: PostFilters,
-  referenceTodayStr?: string
-): EditorialPost[] {
-  const normalizedSearch = filters.search.trim().toLowerCase();
+  filters: any, // Usamos any para aceitar o novo campo sem quebrar a tipagem estrita
+  todayStr: string
+): EditorialPost[] => {
+  let filtered = posts;
 
-  return posts
-    .filter((post) => {
-      if (filters.empresa && filters.empresa !== 'TODAS') {
-        if (post.empresa !== filters.empresa) return false;
+  // 1. Filtro de Empresa
+  if (filters.empresa && filters.empresa !== 'TODAS') {
+    filtered = filtered.filter((p) => p.empresa === filters.empresa);
+  }
+
+  // 2. Filtro de Status
+  if (filters.status && filters.status !== 'TODOS') {
+    filtered = filtered.filter((p) => p.status === filters.status);
+  }
+
+  // 3. Filtro de Busca
+  if (filters.search && filters.search.trim() !== '') {
+    const term = filters.search.toLowerCase();
+    filtered = filtered.filter(
+      (p) =>
+        p.conteudo.toLowerCase().includes(term) ||
+        p.objetivo.toLowerCase().includes(term) ||
+        p.empresa.toLowerCase().includes(term) ||
+        p.responsavel.toLowerCase().includes(term)
+    );
+  }
+
+  // 4. Filtro de Urgência (D+1)
+  if (filters.onlyUrgentAlerts) {
+    filtered = filtered.filter((p) => isUrgentPendingPost(p, todayStr));
+  }
+
+  // 5. NOVO: Filtro Temporal (Período)
+  if (filters.periodo && filters.periodo !== 'TODOS') {
+    // Usamos T12:00:00 para evitar bugs de fuso horário à meia-noite
+    const today = new Date(`${todayStr}T12:00:00`);
+    
+    filtered = filtered.filter((p) => {
+      const postDate = new Date(`${p.data}T12:00:00`);
+      const diffTime = postDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24));
+
+      switch (filters.periodo) {
+        case 'SEMANA':
+          return diffDays >= 0 && diffDays <= 7; // Próximos 7 dias
+        case 'MES':
+          return diffDays >= 0 && diffDays <= 30; // Próximos 30 dias
+        case 'TRIMESTRE':
+          return diffDays >= 0 && diffDays <= 90; // Próximos 90 dias
+        case 'SEMESTRE':
+          return diffDays >= 0 && diffDays <= 180; // Próximos 180 dias
+        default:
+          return true;
       }
-
-      if (filters.status && filters.status !== 'TODOS') {
-        if (post.status !== filters.status) return false;
-      }
-
-      if (filters.onlyUrgentAlerts) {
-        if (!isUrgentPendingPost(post, referenceTodayStr)) return false;
-      }
-
-      if (normalizedSearch.length > 0) {
-        const haystack = [
-          post.empresa,
-          post.objetivo,
-          post.conteudo,
-          post.responsavel,
-          post.formato,
-          post.status,
-          post.data,
-        ]
-          .join(' ')
-          .toLowerCase();
-        if (!haystack.includes(normalizedSearch)) return false;
-      }
-
-      return true;
-    })
-    .sort((a, b) => {
-      const aUrgent = isUrgentPendingPost(a, referenceTodayStr) ? 0 : 1;
-      const bUrgent = isUrgentPendingPost(b, referenceTodayStr) ? 0 : 1;
-      if (aUrgent !== bUrgent) return aUrgent - bUrgent;
-      return a.data.localeCompare(b.data);
     });
-}
+  }
+
+  // Ordenar por data mais próxima
+  return filtered.sort((a, b) => a.data.localeCompare(b.data));
+};
 
 /**
  * Extracts unique sorted company names from the posts list.
