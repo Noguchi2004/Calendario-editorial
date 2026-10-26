@@ -100,22 +100,19 @@ export function getRelativeDateLabel(
  */
 export const filterPosts = (
   posts: EditorialPost[],
-  filters: any, // Usamos any para aceitar o novo campo sem quebrar a tipagem estrita
+  filters: any,
   todayStr: string
 ): EditorialPost[] => {
   let filtered = posts;
 
-  // 1. Filtro de Empresa
   if (filters.empresa && filters.empresa !== 'TODAS') {
     filtered = filtered.filter((p) => p.empresa === filters.empresa);
   }
 
-  // 2. Filtro de Status
   if (filters.status && filters.status !== 'TODOS') {
     filtered = filtered.filter((p) => p.status === filters.status);
   }
 
-  // 3. Filtro de Busca
   if (filters.search && filters.search.trim() !== '') {
     const term = filters.search.toLowerCase();
     filtered = filtered.filter(
@@ -127,37 +124,32 @@ export const filterPosts = (
     );
   }
 
-  // 4. Filtro de Urgência (D+1)
   if (filters.onlyUrgentAlerts) {
     filtered = filtered.filter((p) => isUrgentPendingPost(p, todayStr));
   }
 
-  // 5. NOVO: Filtro Temporal (Período)
   if (filters.periodo && filters.periodo !== 'TODOS') {
-    // Usamos T12:00:00 para evitar bugs de fuso horário à meia-noite
     const today = new Date(`${todayStr}T12:00:00`);
-    
     filtered = filtered.filter((p) => {
       const postDate = new Date(`${p.data}T12:00:00`);
       const diffTime = postDate.getTime() - today.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24));
 
       switch (filters.periodo) {
-        case 'SEMANA':
-          return diffDays >= 0 && diffDays <= 7; // Próximos 7 dias
-        case 'MES':
-          return diffDays >= 0 && diffDays <= 30; // Próximos 30 dias
-        case 'TRIMESTRE':
-          return diffDays >= 0 && diffDays <= 90; // Próximos 90 dias
-        case 'SEMESTRE':
-          return diffDays >= 0 && diffDays <= 180; // Próximos 180 dias
-        default:
-          return true;
+        case 'SEMANA': return diffDays >= 0 && diffDays <= 7;
+        case 'MES': return diffDays >= 0 && diffDays <= 30;
+        case 'TRIMESTRE': return diffDays >= 0 && diffDays <= 90;
+        case 'SEMESTRE': return diffDays >= 0 && diffDays <= 180;
+        default: return true;
       }
     });
   }
 
-  // Ordenar por data mais próxima
+  // NOVO: Filtro de Responsável
+  if (filters.responsavel && filters.responsavel !== 'TODOS') {
+    filtered = filtered.filter((p) => p.responsavel === filters.responsavel);
+  }
+
   return filtered.sort((a, b) => a.data.localeCompare(b.data));
 };
 

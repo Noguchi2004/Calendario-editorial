@@ -56,12 +56,13 @@ export default function App() {
   const [syncMode, setSyncMode] = useState<'firebase' | 'simulated'>('firebase');
   const [bannerNotice, setBannerNotice] = useState<string | null>(null);
 
-  const [filters, setFilters] = useState<PostFilters & { periodo?: string }>({
+  const [filters, setFilters] = useState<PostFilters & { periodo?: string, responsavel?: string }>({
     empresa: 'TODAS',
     status: 'TODOS',
     search: '',
     onlyUrgentAlerts: false,
-    periodo: 'TODOS'
+    periodo: 'TODOS',
+    responsavel: 'TODOS'
   });
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
 
@@ -115,6 +116,13 @@ export default function App() {
   const tomorrowStr = useMemo(() => getRelativeDateString(1), []);
 
   const companies = useMemo(() => extractUniqueCompanies(posts), [posts]);
+  
+  // Extrair lista única de responsáveis
+  const responsaveis = useMemo(() => {
+    const reps = posts.map(p => p.responsavel).filter(Boolean);
+    return Array.from(new Set(reps)).sort();
+  }, [posts]);
+
   const filteredPosts = useMemo(
     () => filterPosts(posts, filters, todayStr),
     [posts, filters, todayStr]
@@ -162,7 +170,8 @@ export default function App() {
       status: 'TODOS',
       search: '',
       onlyUrgentAlerts: false,
-      periodo: 'TODOS'
+      periodo: 'TODOS',
+      responsavel: 'TODOS'
     });
   };
 
@@ -175,6 +184,7 @@ export default function App() {
   const hasActiveFilters =
     filters.empresa !== 'TODAS' ||
     filters.status !== 'TODOS' ||
+    filters.responsavel !== 'TODOS' ||
     filters.search.trim() !== '' ||
     filters.onlyUrgentAlerts ||
     (filters.periodo && filters.periodo !== 'TODOS');
@@ -484,6 +494,20 @@ export default function App() {
                   <option value="MES">Próximos 30 dias</option>
                   <option value="TRIMESTRE">Neste Trimestre</option>
                   <option value="SEMESTRE">Neste Semestre</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <UserCheck className="w-4 h-4 text-slate-400 hidden sm:block" />
+                <select
+                  value={filters.responsavel || 'TODOS'}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, responsavel: e.target.value }))}
+                  className="pl-3 pr-8 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer shadow-xs"
+                >
+                  <option value="TODOS">Resp: Todos</option>
+                  {responsaveis.map((resp) => (
+                    <option key={resp} value={resp}>{resp}</option>
+                  ))}
                 </select>
               </div>
             </div>
